@@ -210,9 +210,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # Append message body if present to the request
         if 'Content-Length' in self.headers:
             req += self.rfile.read(int(self.headers['Content-Length']))
-
+        
+        metadata = {}
         # Send it down the pipe!
-        self._proxy_sock.sendall(self.mitm_request(req))
+        self._proxy_sock.sendall(self.mitm_request(req, metadata))
 
         # Parse response
         h = HTTPResponse(self._proxy_sock)
@@ -231,14 +232,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self._proxy_sock.close()
 
         # Relay the message
-        self.request.sendall(self.mitm_response(res))
+        self.request.sendall(self.mitm_response(res, metadata))
 
-    def mitm_request(self, data):
+    def mitm_request(self, data, metadata):
         for p in self.server._req_plugins:
             data = p(self.server, self).do_request(data)
         return data
 
-    def mitm_response(self, data):
+    def mitm_response(self, data, metadata):
         for p in self.server._res_plugins:
             data = p(self.server, self).do_response(data)
         return data
@@ -294,11 +295,11 @@ class AsyncMitmProxy(ThreadingMixIn, MitmProxy):
 
 class MitmProxyHandler(ProxyHandler):
 
-    def mitm_request(self, data):
+    def mitm_request(self, data, metadata):
         print '>> %s' % repr(data[:100])
         return data
 
-    def mitm_response(self, data):
+    def mitm_response(self, data, metadata):
         print '<< %s' % repr(data[:100])
         return data
 
