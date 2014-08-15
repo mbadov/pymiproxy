@@ -186,8 +186,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # Reload!
         self.setup()
         self.ssl_host = 'https://%s' % self.path
-        self.handle_one_request()
-
+        try:
+            self.handle_one_request()
+        except:
+            pass
 
     def do_COMMAND(self):
 
