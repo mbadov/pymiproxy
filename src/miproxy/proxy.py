@@ -132,8 +132,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def __init__(self, request, client_address, server):
         self.is_connect = False
         BaseHTTPRequestHandler.__init__(self, request, client_address, server)
-
-    def _connect_to_host(self):
+        
+    def _parse_incoming_request(self):
         # Get hostname and port to connect to
         if self.is_connect:
             self.hostname, self.port = self.path.split(':')
@@ -154,6 +154,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 )
             )
 
+    def _connect_to_host(self):
         # Connect to destination
         self._proxy_sock = socket()
         self._proxy_sock.settimeout(10)
@@ -163,17 +164,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if self.is_connect:
             self._proxy_sock = wrap_socket(self._proxy_sock)
 
-
     def _transition_to_ssl(self):
         self.request = wrap_socket(self.request, server_side=True, certfile=self.server.ca[self.path.split(':')[0]])
-
 
     def do_CONNECT(self):
         self.is_connect = True
         try:
+            self._parse_incoming_request()
             # Connect to destination first
             self._connect_to_host()
-
             # If successful, let's do this!
             self.send_response(200, 'Connection established')
             self.end_headers()
@@ -192,16 +191,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             pass
 
     def do_COMMAND(self):
-
-        # Is this an SSL tunnel?
-        if not self.is_connect:
-            try:
-                # Connect to destination
-                self._connect_to_host()
-            except Exception, e:
-                self.send_error(500, str(e))
-                return
-            # Extract path
+        self._parse_incoming_request()
 
         # Build request
         req = '%s %s %s\r\n' % (self.command, self.path, self.request_version)
@@ -215,25 +205,38 @@ class ProxyHandler(BaseHTTPRequestHandler):
         
         metadata = {}
         # Send it down the pipe!
-        self._proxy_sock.sendall(self.mitm_request(req, metadata))
+        req_data = self.mitm_request(req, metadata)
+        
+        if req_data:
+            # Is this an SSL tunnel?
+            if not self.is_connect:
+                try:
+                    # Connect to destination
+                    self._connect_to_host()
+                except Exception, e:
+                    self.send_error(500, str(e))
+                    return
+            
+            self._proxy_sock.sendall(req_data)
+    
+            # Parse response
+            h = HTTPResponse(self._proxy_sock)
+            h.begin()
+    
+            # Get rid of the pesky header
+            del h.msg['Transfer-Encoding']
+    
+            # Time to relay the message across
+            res = '%s %s %s\r\n' % (self.request_version, h.status, h.reason)
+            res += '%s\r\n' % h.msg
+            res += h.read()
+    
+            # Let's close off the remote end
+            h.close()
+            self._proxy_sock.close()
 
-        # Parse response
-        h = HTTPResponse(self._proxy_sock)
-        h.begin()
-
-        # Get rid of the pesky header
-        del h.msg['Transfer-Encoding']
-
-        # Time to relay the message across
-        res = '%s %s %s\r\n' % (self.request_version, h.status, h.reason)
-        res += '%s\r\n' % h.msg
-        res += h.read()
-
-        # Let's close off the remote end
-        h.close()
-        self._proxy_sock.close()
-
-        # Relay the message
+        # Relay the message. If req_data is None, then mitm_response will return
+        # the entire response.
         self.request.sendall(self.mitm_response(res, metadata))
 
     def mitm_request(self, data, metadata):
