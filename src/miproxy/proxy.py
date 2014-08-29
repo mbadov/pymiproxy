@@ -132,7 +132,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def __init__(self, request, client_address, server):
         self.is_connect = False
         BaseHTTPRequestHandler.__init__(self, request, client_address, server)
-        
+
     def _parse_incoming_request(self):
         # Get hostname and port to connect to
         if self.is_connect:
@@ -153,7 +153,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     fragment=u.fragment
                 )
             )
-
+    
     def _connect_to_host(self):
         # Connect to destination
         self._proxy_sock = socket()
@@ -164,8 +164,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if self.is_connect:
             self._proxy_sock = wrap_socket(self._proxy_sock)
 
+
     def _transition_to_ssl(self):
         self.request = wrap_socket(self.request, server_side=True, certfile=self.server.ca[self.path.split(':')[0]])
+
 
     def do_CONNECT(self):
         self.is_connect = True
@@ -173,6 +175,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._parse_incoming_request()
             # Connect to destination first
             self._connect_to_host()
+
             # If successful, let's do this!
             self.send_response(200, 'Connection established')
             self.end_headers()
@@ -204,21 +207,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
             req += self.rfile.read(int(self.headers['Content-Length']))
         
         metadata = {}
+        
+        # Is this an SSL tunnel?
+        if not self.is_connect and self.should_connect(req):
+            try:
+                # Connect to destination
+                self._connect_to_host()
+            except Exception, e:
+                self.send_error(500, str(e))
+                return
+            # Extract path
+            
         # Send it down the pipe!
         req_data = self.mitm_request(req, metadata)
         
         if req_data:
-            # Is this an SSL tunnel?
-            if not self.is_connect:
-                try:
-                    # Connect to destination
-                    self._connect_to_host()
-                except Exception, e:
-                    self.send_error(500, str(e))
-                    # Allow the plugin to perform cleanup
-                    self.mitm_response(res, metadata)
-                    return
-            
             self._proxy_sock.sendall(req_data)
     
             # Parse response
@@ -237,8 +240,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             h.close()
             self._proxy_sock.close()
 
-        # Relay the message. If req_data is None, then mitm_response will return
-        # the entire response.
+        # Relay the message
         self.request.sendall(self.mitm_response(res, metadata))
 
     def mitm_request(self, data, metadata):
@@ -333,4 +335,3 @@ if __name__ == '__main__':
         proxy.serve_forever()
     except KeyboardInterrupt:
         proxy.server_close()
-
