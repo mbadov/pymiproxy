@@ -215,6 +215,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self._connect_to_host()
                 except Exception, e:
                     self.send_error(500, str(e))
+                    # Allow the plugin to perform cleanup
+                    self.mitm_response(res, metadata)
                     return
             
             self._proxy_sock.sendall(req_data)
