@@ -195,7 +195,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def do_COMMAND(self):
         self._parse_incoming_request()
-
+        res = None
+        
         # Build request
         req = '%s %s %s\r\n' % (self.command, self.path, self.request_version)
 
